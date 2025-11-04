@@ -1,1 +1,1 @@
-SUBDIRS(scevent-score)
+SUBDIRS(amplitude-pga scevent-score)
