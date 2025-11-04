@@ -68,6 +68,8 @@ class PGAProcessor : public AmplitudeProcessor {
 			setNoiseEnd(-2);
 			setSignalStart(-2);
 			setSignalEnd("max(150, R / 3.5)");
+			// Data should be prepared that we receive m/s**2 for PGA
+			setDataUnit(MeterPerSecondSquared);
 
 			// Tell the amplitude processor to feed data for both horizontal
 			// components.
@@ -84,7 +86,6 @@ class PGAProcessor : public AmplitudeProcessor {
 			// Reset operator and filter
 			setOperator(nullptr);
 			setFilter(nullptr);
-			clear(State::FilterCreated);
 
 			// Call base class implementation
 			if ( !AmplitudeProcessor::setup(settings) ) {
@@ -181,107 +182,7 @@ class PGAProcessor : public AmplitudeProcessor {
 				setFilter(filter);
 			}
 
-
-			if ( !_enableResponses ) {
-				// If responses are not enabled then we need to convert the data to
-				// the required unit in time domain with IIR filters. So we have to
-				// form a new filter which also takes the optional current filter into
-				// account.
-
-				SignalUnit unit;
-				// Valid value already checked in setup()
-				unit.fromString(_streamConfig[FirstHorizontal].gainUnit.c_str());
-
-				Filter *filter{nullptr};
-				Math::Filtering::ChainFilter<double> *chain{nullptr};
-
-				if ( unit == Meter ) {
-					SEISCOMP_DEBUG("Add double derivation of data for PGA computation");
-					chain = new Math::Filtering::ChainFilter<double>;
-					chain->add(new Math::Filtering::IIRDifferentiate<double>);
-					chain->add(new Math::Filtering::IIRDifferentiate<double>);
-				}
-				else if ( unit == MeterPerSecond ) {
-					SEISCOMP_DEBUG("Add single derivation of data for PGA computation");
-					filter = new Math::Filtering::IIRDifferentiate<double>;
-				}
-
-				if ( chain || filter ) {
-					if ( _stream.filter ) {
-						if ( !chain ) {
-							chain = new Math::Filtering::ChainFilter<double>;
-						}
-
-						if ( filter ) {
-							chain->add(filter);
-						}
-
-						chain->add(_stream.filter);
-						filter = nullptr;
-					}
-
-					_stream.filter = filter ? filter : chain;
-				}
-
-				// Set the flag that the filter chain for data conversion has been
-				// created already so that the base AmplitudeProcessor does not
-				// create the filter again in initFilter().
-				set(State::FilterCreated);
-			}
-
 			return true;
-		}
-
-
-		void prepareData(DoubleArray &data) override {
-			Sensor *sensor = _streamConfig[FirstHorizontal].sensor();
-
-			// When using full responses then all information needs to be set up
-			// correctly otherwise an error is set
-			if ( _enableResponses && !check(State::ResponseApplied) ) {
-				if ( !sensor ) {
-					setStatus(MissingResponse, 1);
-					return;
-				}
-
-				if ( !sensor->response() ) {
-					setStatus(MissingResponse, 2);
-					return;
-				}
-
-				// If the unit cannot be converted into the internal
-				// enum (what basically means "unknown") then the deconvolution
-				// cannot be correctly. We do not want to assume a unit here
-				// to prevent computation errors in case of bad configuration.
-				SignalUnit unit;
-				if ( !unit.fromString(_streamConfig[FirstHorizontal].gainUnit.c_str()) ) {
-					// Invalid unit string
-					setStatus(IncompatibleUnit, 2);
-					return;
-				}
-
-				int intSteps = 0;
-				switch ( unit ) {
-					case Meter:
-						intSteps = -2;
-						break;
-					case MeterPerSecond:
-						intSteps = -1;
-						break;
-					case MeterPerSecondSquared:
-						break;
-					default:
-						setStatus(IncompatibleUnit, 1);
-						return;
-				}
-
-				set(State::ResponseApplied);
-
-				if ( !deconvolveData(sensor->response(), _data, intSteps) ) {
-					setStatus(DeconvolutionFailed, 0);
-					return;
-				}
-			}
 		}
 
 
